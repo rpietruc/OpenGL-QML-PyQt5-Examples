@@ -1,127 +1,121 @@
-from PyQt5.QtCore import pyqtProperty, pyqtSignal, pyqtSlot, QObject, QSize
-from PyQt5.QtQuick import QQuickItem
-from PyQt5.QtCore import Qt
+from PySide2.QtCore import Slot, Property, QObject, QSize
+from PySide2.QtQuick import QQuickItem, QQuickWindow
+from PySide2.QtCore import Qt
+from PySide2.QtGui import QOpenGLShader, QOpenGLShaderProgram, QImage
+import numpy as np
+import ctypes
+import OpenGL.GL as GL
 
-from PyQt5.QtGui import QOpenGLShaderProgram, QOpenGLShader
+positions = np.array([
+    (-0.5, -0.8, 0.0),
+    (0.5, -0.8, 0.0),
+    (0.0, 0.8, 0.0)
+], dtype=ctypes.c_float)
 
-positions = [
-	(-0.5, -0.8, 0.0),
-	(0.5, -0.8, 0.0),
-	(0.0, 0.8, 0.0)
-]
+colors_mixed = np.array([
+    (1.0, 0.0, 0.0),
+    (0.0, 1.0, 0.0),
+    (0.0, 0.0, 1.0)
+], dtype=ctypes.c_float)
 
-colors_mixed = [
-	(1.0, 0.0, 0.0),
-	(0.0, 1.0, 0.0),
-	(0.0, 0.0, 1.0)
-]
+colors_red = np.array([
+    (1.0, 0.0, 0.0, 0.0),
+    (1.0, 0.1, 0.0, 0.0),
+    (1.0, 0.1, 0.1, 0.0)
+], dtype=ctypes.c_float)
 
-colors_red = [
-	(1.0, 0.0, 0.0, 0.0),
-	(1.0, 0.1, 0.0, 0.0),
-	(1.0, 0.1, 0.1, 0.0)
-]
+colors_green = np.array([
+    (0.0, 1.0, 0.0, 0.0),
+    (0.1, 1.0, 0.0, 0.0),
+    (0.1, 1.0, 0.1, 0.0)
+], dtype=ctypes.c_float)
 
-colors_green = [
-	(0.0, 1.0, 0.0, 0.0),
-	(0.1, 1.0, 0.0, 0.0),
-	(0.1, 1.0, 0.1, 0.0)
-]
-colors_blue = [
-	(0.0, 0.0, 1.0, 0.0),
-	(0.0, 0.1, 1.0, 0.0),
-	(0.1, 0.1, 1.0, 0.0)
-]
+colors_blue = np.array([
+    (0.0, 0.0, 1.0, 0.0),
+    (0.0, 0.1, 1.0, 0.0),
+    (0.1, 0.1, 1.0, 0.0)
+], dtype=ctypes.c_float)
 
 colors = colors_mixed
 
+
 class TriangleUnderlay(QQuickItem):
-	def __init__ ( self, parent = None ):
-		super(TriangleUnderlay, self).__init__(parent)
-		self._renderer = None
-		self.windowChanged.connect(self.onWindowChanged)
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._renderer = None
+        self.windowChanged.connect(self.onWindowChanged)
 
-	# @pyqtSlot('QQuickWindow'), incompatible connection error, don't know why
-	def onWindowChanged ( self, window ):
-		# Because it's in different thread which required a direct connection
-		# window == self.window(), they are pointing to the same window instance. Verified.
-		window.beforeSynchronizing.connect(self.sync, type = Qt.DirectConnection)
-		window.setClearBeforeRendering(False)  # otherwise quick would clear everything we render
+    @Slot(QQuickWindow)
+    def onWindowChanged(self, window):
+        self.window().beforeSynchronizing.connect(self.sync, type=Qt.DirectConnection)
+        self.window().setClearBeforeRendering(False)
 
-	@pyqtSlot(name = 'sync')
-	def sync ( self ):
-		if self._renderer is None:
-			# QObject: Cannot create children for a parent that is in a different thread.
-			# (Parent is TriangleUnderlay(0x7fd0d64734e0), parent's thread is QThread(0x7fd0d6197270), current thread is QSGRenderThread(0x7fd0d70b9210)
-			# TriangleUnderlay should NOT be TriangleUnderlayRenderer's parent
-			self._renderer = TriangleUnderlayRenderer()
-			# Because it's in different thread which required a direct connection
-			self.window().beforeRendering.connect(self._renderer.paint, type = Qt.DirectConnection)
-		self._renderer.set_viewport_size(self.window().size() * self.window().devicePixelRatio())
-		self._renderer.set_window(self.window())
+    @Slot()
+    def sync(self):
+        if self._renderer is None:
+            self._renderer = TriangleUnderlayRenderer()
+            self.window().beforeRendering.connect(self._renderer.paint, type=Qt.DirectConnection)
+        self._renderer.set_viewport_size(self.window().size() * self.window().devicePixelRatio())
+        self._renderer.set_window(self.window())
 
-	@pyqtSlot(int)
-	def changeColor ( self, color_enum ):
-		global colors
-		if color_enum == 1:
-			colors = colors_red
-		elif color_enum == 2:
-			colors = colors_green
-		elif color_enum == 3:
-			colors = colors_blue
-		elif color_enum == 4:
-			colors = colors_mixed
+    @Slot(int)
+    def changeColor(self, color_enum):
+        global colors
+        if color_enum == 1:
+            colors = colors_red
+        elif color_enum == 2:
+            colors = colors_green
+        elif color_enum == 3:
+            colors = colors_blue
+        elif color_enum == 4:
+            colors = colors_mixed
 
 
 class TriangleUnderlayRenderer(QObject):
-	def __init__ ( self, parent = None ):
-		super(TriangleUnderlayRenderer, self).__init__(parent)
-		self._shader_program = None
-		self._viewport_size = QSize()
-		self._window = None
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._shader_program = None
+        self._viewport_size = QSize()
+        self._window = None
 
-	@pyqtSlot()
-	def paint ( self ):
+    @Slot()
+    def paint(self):
+        try:
+            gl = self._window.openglContext().functions()
+            if self._shader_program is None:
+                self._shader_program = QOpenGLShaderProgram()
+                self._shader_program.addShaderFromSourceFile(QOpenGLShader.Vertex, 'shaders/OpenGL_2_1/vertex.glsl')
+                self._shader_program.addShaderFromSourceFile(QOpenGLShader.Fragment, 'shaders/OpenGL_2_1/fragment.glsl')
+                self._shader_program.bindAttributeLocation('position', 0)
+                self._shader_program.bindAttributeLocation('color', 1)
+                self._shader_program.link()
 
-		# TODO test on Ubuntu
-		# for Darwin, it's a must
-		gl = self._window.openglContext().versionFunctions()
+            self._shader_program.bind()
+            self._shader_program.enableAttributeArray(0)
+            self._shader_program.enableAttributeArray(1)
 
-		if self._shader_program is None:
-			self._shader_program = QOpenGLShaderProgram()
-			self._shader_program.addShaderFromSourceFile(QOpenGLShader.Vertex, 'shaders/OpenGL_2_1/vertex.glsl')
-			self._shader_program.addShaderFromSourceFile(QOpenGLShader.Fragment, 'shaders/OpenGL_2_1/fragment.glsl')
-			self._shader_program.bindAttributeLocation('position', 0)
-			self._shader_program.bindAttributeLocation('color', 1)
-			self._shader_program.link()
+            self._shader_program.setAttributeArray(0, GL.GL_FLOAT, positions.tobytes(), 3)
+            self._shader_program.setAttributeArray(1, GL.GL_FLOAT, colors.tobytes(), 3)
 
-		self._shader_program.bind()
-		self._shader_program.enableAttributeArray(0)
-		self._shader_program.enableAttributeArray(1)
+            gl.glViewport(0, 0, self._viewport_size.width(), self._viewport_size.height())
 
-		self._shader_program.setAttributeArray(0, positions)
-		self._shader_program.setAttributeArray(1, colors)
+            gl.glClearColor(0.5, 0.5, 0.5, 1)
+            gl.glDisable(GL.GL_DEPTH_TEST)
 
-		gl.glViewport(0, 0, self._viewport_size.width(), self._viewport_size.height())
+            gl.glClear(GL.GL_COLOR_BUFFER_BIT)
 
-		gl.glClearColor(0.5, 0.5, 0.5, 1)
-		gl.glDisable(gl.GL_DEPTH_TEST)
+            gl.glDrawArrays(GL.GL_TRIANGLES, 0, 3)
+            self._shader_program.disableAttributeArray(0)
+            self._shader_program.disableAttributeArray(1)
+            self._shader_program.release()
 
-		gl.glClear(gl.GL_COLOR_BUFFER_BIT)
+            self._window.resetOpenGLState()
+            self._window.update()
+        except Exception as e:
+            print(f"exception {e}")
 
-		gl.glDrawArrays(gl.GL_TRIANGLES, 0, 3)
+    def set_viewport_size(self, size):
+        self._viewport_size = size
 
-		self._shader_program.disableAttributeArray(0)
-		self._shader_program.disableAttributeArray(1)
-
-		self._shader_program.release()
-
-		# Restore the OpenGL state for QtQuick rendering
-		self._window.resetOpenGLState()
-		self._window.update()
-
-	def set_viewport_size ( self, size ):
-		self._viewport_size = size
-
-	def set_window ( self, window ):
-		self._window = window
+    def set_window(self, window):
+        self._window = window
